@@ -1,0 +1,143 @@
+// ==========================
+// PRISMA SETUP
+// ==========================
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================
+// ENUMS
+// ==========================
+enum StaffRole {
+  ADMIN
+  DOCTOR
+  NURSE
+  RECEPTIONIST
+}
+
+enum AppointmentStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+// ==========================
+// HOSPITAL (MAIN ACCOUNT)
+// ==========================
+model Hospital {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String
+  address   String?
+  password  String
+  createdAt DateTime @default(now())
+
+  staff          Staff[]
+  patients       Patient[]
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+}
+
+// ==========================
+// STAFF (DOCTORS, NURSES, ADMINS)
+// ==========================
+model Staff {
+  id         String   @id @default(cuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  email          String    @unique
+  password       String
+  role           StaffRole
+  firstName      String
+  lastName       String
+  department     String?
+  specialization String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+}
+
+// ==========================
+// PATIENT (NO LOGIN)
+// ==========================
+model Patient {
+  id         String   @id @default(cuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  firstName   String
+  lastName    String
+  gender      String
+  dateOfBirth DateTime
+  bloodGroup  String?
+  phone       String?
+  createdAt   DateTime @default(now())
+
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+}
+
+// ==========================
+// APPOINTMENTS
+// ==========================
+model Appointment {
+  id         String   @id @default(cuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  doctorId String
+  doctor   Staff  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  appointmentDate DateTime
+  status          AppointmentStatus @default(PENDING)
+  reason          String?
+}
+
+// ==========================
+// MEDICAL RECORDS
+// ==========================
+model MedicalRecord {
+  id         String   @id @default(cuid())
+  hospitalId String
+  hospital   Hospital @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+  patientId String
+  patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  doctorId String
+  doctor   Staff  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  diagnosis String
+  notes     String?
+  vitals    Json?
+  createdAt DateTime @default(now())
+
+  prescriptions Prescription[]
+}
+
+// ==========================
+// PRESCRIPTIONS
+// ==========================
+model Prescription {
+  id              String        @id @default(cuid())
+  medicalRecordId String
+  medicalRecord   MedicalRecord @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+
+  medicineName String
+  dosage       String
+  frequency    String
+  duration     String
+}
