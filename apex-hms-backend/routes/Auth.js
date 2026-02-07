@@ -1,111 +1,152 @@
-// routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const nodemailer = require('nodemailer');
-const User = require('../models/User'); // Your Mongoose User Model
+const jwt = require('jsonwebtoken'); // Added this missing import
+const { PrismaClient } = require('@prisma/client');
 
-// 1. REGISTER ROUTE
-app.post('/api/auth/register', async (req, res) => {
+const prisma = new PrismaClient();
+
+// ==========================================
+// HOSPITAL REGISTRATION
+// ==========================================
+router.post('/hospital/register', async (req, res) => {
     try {
-        // Destructure exactly what the frontend is sending
-        const { 
-            email, 
-            password, 
-            firstName, 
-            lastName, 
-            gender, 
-            dateOfBirth, 
-            phone, 
-            bloodGroup 
+        const {
+            hospitalName,
+            hospitalType,
+            address,
+            phone,
+            email,
+            licenseNumber,
+            adminName,
+            password
         } = req.body;
 
-        // Validation: Ensure dateOfBirth exists before converting
-        if (!dateOfBirth || isNaN(new Date(dateOfBirth).getTime())) {
-            return res.status(400).json({ message: "A valid Date of Birth is required." });
-        }
-
         const hashedPassword = await bcrypt.hash(password, 10);
-        const vToken = crypto.randomBytes(32).toString('hex');
 
-        const newUser = await prisma.user.create({
+        const newHospital = await prisma.hospital.create({
             data: {
+                hospitalName,
+                hospitalType: hospitalType.toLowerCase(),
+                address,
+                phone,
                 email,
-                password: hashedPassword,
-                verificationToken: vToken,
-                isVerified: false,
-                patientProfile: {
-                    create: {
-                        firstName: firstName || "", // Fallback to empty string if undefined
-                        lastName: lastName || "",
-                        gender: gender || "Other",
-                        phone: phone || "",
-                        bloodGroup: bloodGroup || "N/A",
-                        dateOfBirth: new Date(dateOfBirth),
-                    }
-                }
+                licenseNumber,
+                adminName,
+                passwordHash: hashedPassword,
+                status: 'pending'
             }
         });
 
-        console.log(`Verification Link: http://localhost:3000/verify-email?token=${vToken}`);
-        res.status(201).json({ message: "Registration successful! Please verify your email." });
-
+        res.status(201).json({ message: "Registration successful! Awaiting approval." });
     } catch (error) {
-        console.error("Registration Error:", error);
-        res.status(500).json({ message: "Internal server error." });
+        console.error("DETAILED ERROR:", error);
+        if (error.code === 'P2002') {
+            return res.status(400).json({ error: "Email or License Number already registered." });
+        }
+        res.status(500).json({ error: "Database error." });
     }
-});
-// 3. VERIFY ROUTE (Called by VerifyEmail.jsx)
-app.get('/api/auth/verify', async (req, res) => {
-    const { token } = req.query;
+}); // <--- This closing brace was originally in the wrong place!
+
+// ==========================================
+// SUPER ADMIN LOGIN
+// ==========================================
+router.post('/admin/login', async (req, res) => {
+    const { username, password } = req.body;
 
     try {
-        // 1. Find user by token
-        const user = await prisma.user.findUnique({
-            where: { verificationToken: token }
+        const admin = await prisma.superAdmin.findUnique({
+            where: { username }
         });
 
-        // 2. If no user found with that token, check if they are already verified
-        if (!user) {
-            // This handles the "Double Click" or "Strict Mode" issue
-            return res.status(200).json({ message: "Account is already active. You can log in." });
+        if (!admin) {
+            return res.status(401).json({ error: "Invalid admin credentials" });
         }
 
-        // 3. Update user to verified and CLEAR the token
-        await prisma.user.update({
-            where: { id: user.id },
-            data: { 
-                isVerified: true, 
-                verificationToken: null // Cleared for security
+        const isMatch = await bcrypt.compare(password, admin.passwordHash);
+
+        if (!isMatch) {
+            return res.status(401).json({ error: "Invalid admin credentials" });
+        }
+
+        // Generate Token
+        const token = jwt.sign(
+            { id: admin.id, role: 'super_admin' },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            message: "Login successful",
+            token,
+            user: {
+                username: admin.username,
+                role: 'super_admin'
             }
         });
 
-        res.json({ message: "Account activated successfully!" });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: "Server error during verification." });
+    } catch (error) {
+        console.error("Admin Login Error:", error);
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 
-router.post('/login', async (req, res) => {
+// ==========================================
+// HOSPITAL LOGIN
+// ==========================================
+router.post('/hospital/login', async (req, res) => {
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
 
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    // 1. Check Password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-    // 2. STOPS LOGIN IF NOT VERIFIED
-    if (!user.isVerified) {
-        return res.status(403).json({
-            message: "Please verify your email before logging in.",
-            needsVerification: true
+    try {
+        // 1. Find the hospital by email
+        const hospital = await prisma.hospital.findUnique({
+            where: { email }
         });
-    }
 
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
-    res.json({ token, user });
+        if (!hospital) {
+            return res.status(401).json({ error: "Invalid email or password" });
+        }
+
+        // 2. Check if the hospital is approved
+        if (hospital.status === 'pending') {
+            return res.status(403).json({ 
+                error: "Your account is still pending approval. Please wait for the Super Admin to verify your hospital." 
+            });
+        }
+
+        if (hospital.status === 'suspended') {
+            return res.status(403).json({ error: "This account has been suspended." });
+        }
+
+        // 3. Verify password
+        const isMatch = await bcrypt.compare(password, hospital.passwordHash);
+        if (!isMatch) {
+            return res.status(401).json({ error: "Invalid email or password" });
+        }
+
+        // 4. Generate Token
+        const token = jwt.sign(
+            { id: hospital.id, role: 'hospital_admin' },
+            process.env.JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        // 5. Send response
+        res.json({
+            message: "Login successful",
+            token,
+            hospital: {
+                id: hospital.id,
+                name: hospital.hospitalName,
+                email: hospital.email,
+                role: 'hospital_admin'
+            }
+        });
+
+    } catch (error) {
+        console.error("Hospital Login Error:", error);
+        res.status(500).json({ error: "Internal server error" });
+    }
 });
+
+module.exports = router;
