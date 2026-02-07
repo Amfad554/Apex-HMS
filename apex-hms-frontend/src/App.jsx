@@ -5,7 +5,7 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 3500); 
+    const timer = setTimeout(() => setLoading(false), 3500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -21,26 +21,26 @@ function App() {
             {/* Pulsing Outer Rings */}
             <div className="absolute inset-0 rounded-full bg-indigo-500/20 animate-ping"></div>
             <div className="absolute inset-0 rounded-full bg-indigo-500/10 animate-pulse scale-150"></div>
-            
+
             {/* The Main Icon Container */}
             <div className="relative bg-white p-6 rounded-[2rem] shadow-2xl border border-indigo-50 flex items-center justify-center">
-              <svg 
-                className="w-16 h-16 text-indigo-600 animate-heartbeat" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                className="w-16 h-16 text-indigo-600 animate-heartbeat"
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={1.5} 
-                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" 
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
                 />
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M9 12h3l2-3 2 6 1-3h2" 
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 12h3l2-3 2 6 1-3h2"
                   className="animate-draw"
                 />
               </svg>
@@ -49,9 +49,12 @@ function App() {
 
           {/* Branding Text */}
           <div className="text-center">
-            <h1 className="text-3xl font-black text-slate-800 tracking-tighter italic" style={{ fontFamily: 'serif' }}>
-              ApexHMS
-            </h1>
+            <div className="text-3xl font-black text-slate-800 tracking-tighter italic" style={{ fontFamily: 'serif' }}>
+              <span className="text-3xl font-black tracking-tight text-slate-900">
+                HMS<span className="text-indigo-600 text-3xl">Care</span>
+              </span>
+            </div>
+
             <div className="flex items-center gap-2 justify-center mt-2">
               <span className="h-[2px] w-4 bg-indigo-400 rounded-full"></span>
               <p className="text-slate-400 uppercase text-[10px] tracking-[0.3em] font-bold">
