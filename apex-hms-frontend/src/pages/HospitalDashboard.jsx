@@ -1,333 +1,245 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, 
-  Calendar, 
-  UserPlus, 
-  Activity,
-  TrendingUp,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Pill,
-  FileText,
-  BarChart3,
-  Plus
+import {
+  Home, Users, Calendar, Stethoscope, Pill, FileText,
+  Settings, LogOut, Activity, Bell, Search, Sun, Moon,
+  Menu, ChevronDown, X
 } from 'lucide-react';
+import { themes, BLUE, BLUE2, ACCENT } from './theme.js';
+import DashboardHome from './sections/DashboardHome.jsx';
+import Patients from './sections/Patients.jsx';
+import Appointments from './sections/Appointments.jsx';
+import Staff from './sections/Staff.jsx';
+import Pharmacy from './sections/Pharmacy.jsx';
+import RecordsSection from './sections/RecordsSection.jsx';
+import DashSettings from './sections/Settings.jsx';
+
+const NAV_ITEMS = [
+  { id: 'dashboard', icon: Home, label: 'Dashboard' },
+  { id: 'patients', icon: Users, label: 'Patients' },
+  { id: 'appointments', icon: Calendar, label: 'Appointments' },
+  { id: 'staff', icon: Stethoscope, label: 'Staff' },
+  { id: 'pharmacy', icon: Pill, label: 'Pharmacy' },
+  { id: 'records', icon: FileText, label: 'Records' },
+  { id: 'settings', icon: Settings, label: 'Settings' },
+];
 
 export default function HospitalDashboard() {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [activeSection, setActive] = useState('dashboard');
+  const [sidebarOpen, setSidebar] = useState(true);
+  const [mobileSidebar, setMobile] = useState(false);
   const [hospital, setHospital] = useState(null);
-  const [stats, setStats] = useState({
-    totalPatients: 0,
-    totalStaff: 0,
-    todayAppointments: 0,
-    pendingAppointments: 0,
-    activePrescriptions: 0,
-    recentRecords: 0
-  });
-  const [recentPatients, setRecentPatients] = useState([]);
-  const [upcomingAppointments, setUpcomingAppointments] = useState([]);
+  const [searchQuery, setSearch] = useState('');
+  const [notifications] = useState(3);
+  const [isMobile, setIsMobile] = useState(false);
+
+  const t = isDark ? themes.dark : themes.light;
 
   useEffect(() => {
-    // Get hospital data from localStorage
-    const userData = JSON.parse(localStorage.getItem('user'));
-    if (!userData || !userData.id) {
-      navigate('/hospital/auth');
-      return;
-    }
-    
-    setHospital(userData);
-    fetchDashboardData(userData.id);
-  }, [navigate]);
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile) setSidebar(false);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
-  const fetchDashboardData = async (hospitalId) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      // Fetch patients count
-      const patientsResponse = await fetch(`http://localhost:5000/api/patients/hospital/${hospitalId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (patientsResponse.ok) {
-        const patientsData = await patientsResponse.json();
-        setStats(prev => ({ ...prev, totalPatients: patientsData.patients.length }));
-        // Get recent 5 patients
-        setRecentPatients(patientsData.patients.slice(0, 5));
-      }
+  useEffect(() => {
+    // Load hospital info from localStorage (set at login)
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (!user) { navigate('/hospital/auth'); return; }
+    setHospital(user);
+  }, []);
 
-      // TODO: Fetch staff, appointments, prescriptions when those endpoints are ready
-      
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-      setLoading(false);
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+    window.dispatchEvent(new Event('themeChange'));
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    window.dispatchEvent(new Event('authChange'));
+    navigate('/hospital/auth');
+  };
+
+  const navigate_to = (id) => { setActive(id); setMobile(false); };
+
+  const sectionProps = { isDark, t, hospital, isMobile };
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case 'dashboard': return <DashboardHome  {...sectionProps} onNavigate={navigate_to} />;
+      case 'patients': return <Patients       {...sectionProps} />;
+      case 'appointments': return <Appointments   {...sectionProps} />;
+      case 'staff': return <Staff          {...sectionProps} />;
+      case 'pharmacy': return <Pharmacy       {...sectionProps} />;
+      case 'records': return <RecordsSection {...sectionProps} />;
+      case 'settings': return <DashSettings   {...sectionProps} />;
+      default: return <DashboardHome  {...sectionProps} onNavigate={navigate_to} />;
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading dashboard...</p>
+  const SidebarContent = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${t.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: `linear-gradient(135deg, ${BLUE}, ${BLUE2})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Activity size={20} color="#fff" />
+          </div>
+          {(sidebarOpen || mobileSidebar) && (
+            <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: '-0.5px', color: t.text }}>
+              HMS<span style={{ background: `linear-gradient(135deg, ${BLUE}, ${BLUE2})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Care</span>
+            </span>
+          )}
         </div>
+        {mobileSidebar && <button onClick={() => setMobile(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSub }}><X size={18} /></button>}
       </div>
-    );
-  }
+
+      <nav style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+        {NAV_ITEMS.map(({ id, icon: Icon, label }) => {
+          const isActive = activeSection === id;
+          return (
+            <button key={id} onClick={() => navigate_to(id)} style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+              borderRadius: 10, cursor: 'pointer', border: 'none',
+              background: isActive ? (isDark ? 'rgba(59,91,219,0.2)' : 'rgba(59,91,219,0.1)') : 'transparent',
+              color: isActive ? '#60a5fa' : t.textSub,
+              transition: 'all 0.15s', fontWeight: isActive ? 600 : 400, fontSize: 14,
+              width: '100%', textAlign: 'left', fontFamily: 'inherit',
+            }}
+              onMouseEnter={e => !isActive && (e.currentTarget.style.background = t.hover)}
+              onMouseLeave={e => !isActive && (e.currentTarget.style.background = 'transparent')}
+            >
+              <Icon size={18} style={{ flexShrink: 0 }} />
+              {(sidebarOpen || mobileSidebar) && <span>{label}</span>}
+              {(sidebarOpen || mobileSidebar) && isActive && <div style={{ marginLeft: 'auto', width: 6, height: 6, borderRadius: '50%', background: BLUE }} />}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div style={{ padding: '12px 8px', borderTop: `1px solid ${t.border}` }}>
+        <button onClick={handleLogout} style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+          borderRadius: 10, cursor: 'pointer', color: ACCENT.red, fontSize: 14,
+          fontWeight: 500, background: 'none', border: 'none', width: '100%', fontFamily: 'inherit',
+        }}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+        >
+          <LogOut size={18} />
+          {(sidebarOpen || mobileSidebar) && <span>Logout</span>}
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="p-6 bg-slate-50 min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-800 mb-2">
-            Welcome back, {hospital?.name || 'Hospital Admin'}! 👋
-          </h1>
-          <p className="text-slate-600">Here's what's happening with your hospital today.</p>
-        </div>
+    <div style={{ display: 'flex', minHeight: '100vh', background: t.bg, fontFamily: "'DM Sans', 'Segoe UI', sans-serif", color: t.text, transition: 'background 0.3s' }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap');
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.2); border-radius: 10px; }
+        @media (max-width: 767px) {
+          .desktop-sidebar { display: none !important; }
+          .bottom-nav { display: flex !important; }
+          .header-search { display: none !important; }
+          .main-content { padding-bottom: 80px !important; }
+        }
+        @media (min-width: 768px) { .bottom-nav { display: none !important; } }
+      `}</style>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard
-            icon={<Users className="w-6 h-6" />}
-            label="Total Patients"
-            value={stats.totalPatients}
-            change="+12%"
-            changeType="positive"
-            color="blue"
-          />
-          <StatCard
-            icon={<Calendar className="w-6 h-6" />}
-            label="Today's Appointments"
-            value={stats.todayAppointments}
-            change="8 pending"
-            color="green"
-          />
-          <StatCard
-            icon={<UserPlus className="w-6 h-6" />}
-            label="Staff Members"
-            value={stats.totalStaff}
-            color="purple"
-          />
-          <StatCard
-            icon={<Activity className="w-6 h-6" />}
-            label="Active Prescriptions"
-            value={stats.activePrescriptions}
-            color="orange"
-          />
-        </div>
+      {/* Desktop Sidebar */}
+      <aside className="desktop-sidebar" style={{ width: sidebarOpen ? 240 : 70, minHeight: '100vh', background: t.sidebar, borderRight: `1px solid ${t.border}`, transition: 'width 0.25s', overflow: 'hidden', position: 'sticky', top: 0, flexShrink: 0, zIndex: 100, boxShadow: isDark ? '2px 0 20px rgba(0,0,0,0.3)' : '2px 0 12px rgba(0,0,0,0.06)', display: 'flex', flexDirection: 'column' }}>
+        <SidebarContent />
+      </aside>
 
-        {/* Quick Actions */}
-        <div className="grid md:grid-cols-4 gap-4 mb-8">
-          <QuickActionCard
-            icon={<UserPlus />}
-            title="Register Patient"
-            description="Add new patient"
-            onClick={() => navigate('/dashboard/patients?action=add')}
-            color="blue"
-          />
-          <QuickActionCard
-            icon={<Calendar />}
-            title="Book Appointment"
-            description="Schedule appointment"
-            onClick={() => navigate('/dashboard/appointments?action=book')}
-            color="green"
-          />
-          <QuickActionCard
-            icon={<Pill />}
-            title="Add Prescription"
-            description="Create prescription"
-            onClick={() => navigate('/dashboard/pharmacy?action=add')}
-            color="purple"
-          />
-          <QuickActionCard
-            icon={<FileText />}
-            title="Medical Record"
-            description="Add new record"
-            onClick={() => navigate('/dashboard/patients')}
-            color="orange"
-          />
-        </div>
+      {/* Mobile Sidebar Overlay */}
+      {mobileSidebar && (
+        <>
+          <div onClick={() => setMobile(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200 }} />
+          <aside style={{ position: 'fixed', top: 0, left: 0, bottom: 0, width: 260, background: t.sidebar, zIndex: 201, display: 'flex', flexDirection: 'column', boxShadow: '4px 0 24px rgba(0,0,0,0.3)' }}>
+            <SidebarContent />
+          </aside>
+        </>
+      )}
 
-        <div className="grid lg:grid-cols-2 gap-8">
-          {/* Recent Patients */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-slate-800">Recent Patients</h3>
-              <button
-                onClick={() => navigate('/dashboard/patients')}
-                className="text-sm text-indigo-600 hover:text-indigo-700 font-semibold"
-              >
-                View All →
-              </button>
-            </div>
-            
-            {recentPatients.length === 0 ? (
-              <div className="text-center py-8">
-                <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <p className="text-slate-600 mb-4">No patients registered yet</p>
-                <button
-                  onClick={() => navigate('/dashboard/patients?action=add')}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-semibold"
-                >
-                  Register First Patient
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {recentPatients.map((patient) => (
-                  <div
-                    key={patient.id}
-                    className="flex items-center justify-between p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition cursor-pointer"
-                    onClick={() => navigate(`/dashboard/patients/${patient.id}`)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold">
-                        {patient.full_name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-slate-800">{patient.full_name}</p>
-                        <p className="text-sm text-slate-600">{patient.patient_number}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-slate-600">{patient.blood_group || 'N/A'}</p>
-                      <p className="text-xs text-slate-500">{patient.gender}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {/* Top Bar */}
+        <header style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', background: t.sidebar, borderBottom: `1px solid ${t.border}`, position: 'sticky', top: 0, zIndex: 50, gap: 12, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => isMobile ? setMobile(true) : setSidebar(!sidebarOpen)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textSub, display: 'flex', padding: 4 }}>
+              <Menu size={20} />
+            </button>
+            {isMobile && (
+              <span style={{ fontWeight: 800, fontSize: 17, letterSpacing: '-0.5px', color: t.text }}>
+                HMS<span style={{ background: `linear-gradient(135deg, ${BLUE}, ${BLUE2})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Care</span>
+              </span>
             )}
-          </div>
-
-          {/* Upcoming Appointments */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-slate-800">Today's Appointments</h3>
-              <button
-                onClick={() => navigate('/dashboard/appointments')}
-                className="text-sm text-indigo-600 hover:text-indigo-700 font-semibold"
-              >
-                View All →
-              </button>
-            </div>
-            
-            <div className="text-center py-8">
-              <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-600 mb-4">No appointments scheduled for today</p>
-              <button
-                onClick={() => navigate('/dashboard/appointments?action=book')}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm font-semibold"
-              >
-                Book Appointment
-              </button>
+            <div className="header-search" style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.input, borderRadius: 10, padding: '8px 14px', border: `1px solid ${t.border}` }}>
+              <Search size={15} color={t.textMuted} />
+              <input placeholder="Search patients, staff..." value={searchQuery} onChange={e => setSearch(e.target.value)} style={{ background: 'none', border: 'none', outline: 'none', color: t.text, fontSize: 13, width: 180, fontFamily: 'inherit' }} />
             </div>
           </div>
-        </div>
 
-        {/* Activity Feed */}
-        <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <h3 className="text-xl font-bold text-slate-800 mb-6">Recent Activity</h3>
-          <div className="space-y-4">
-            <ActivityItem
-              icon={<UserPlus className="w-5 h-5" />}
-              title="New patient registered"
-              description="John Doe was added to the system"
-              time="2 hours ago"
-              color="blue"
-            />
-            <ActivityItem
-              icon={<Calendar className="w-5 h-5" />}
-              title="Appointment completed"
-              description="Dr. Smith completed consultation with Jane Smith"
-              time="5 hours ago"
-              color="green"
-            />
-            <ActivityItem
-              icon={<FileText className="w-5 h-5" />}
-              title="Medical record updated"
-              description="Lab results added for Patient #P000123"
-              time="1 day ago"
-              color="purple"
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={toggleTheme} style={{ width: 36, height: 36, borderRadius: 10, background: t.input, border: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.textSub }}>
+              {isDark ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+            <div style={{ position: 'relative' }}>
+              <button style={{ width: 36, height: 36, borderRadius: 10, background: t.input, border: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: t.textSub }}>
+                <Bell size={16} />
+              </button>
+              {notifications > 0 && <div style={{ position: 'absolute', top: 6, right: 6, width: 8, height: 8, borderRadius: '50%', background: ACCENT.red, border: `2px solid ${t.sidebar}` }} />}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 6px', borderRadius: 10 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${BLUE}, #8b5cf6)`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: 13, flexShrink: 0 }}>
+                {hospital?.name?.charAt(0)?.toUpperCase() || 'H'}
+              </div>
+              {!isMobile && (
+                <>
+                  <div>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: t.text, display: 'block' }}>{hospital?.name || 'Admin'}</span>
+                    <span style={{ fontSize: 11, color: t.textMuted }}>Administrator</span>
+                  </div>
+                  <ChevronDown size={14} color={t.textMuted} />
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        </header>
+
+        <main className="main-content" style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 16 : 24 }}>
+          {renderSection()}
+        </main>
+
+        {/* Mobile Bottom Nav */}
+        <nav className="bottom-nav" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: t.sidebar, borderTop: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-around', padding: '8px 4px 12px', zIndex: 100, boxShadow: '0 -4px 20px rgba(0,0,0,0.15)' }}>
+          {NAV_ITEMS.slice(0, 5).map(({ id, icon: Icon, label }) => {
+            const isActive = activeSection === id;
+            return (
+              <button key={id} onClick={() => navigate_to(id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 10, border: 'none', cursor: 'pointer', background: isActive ? (isDark ? 'rgba(59,91,219,0.2)' : 'rgba(59,91,219,0.1)') : 'transparent', color: isActive ? '#60a5fa' : t.textMuted, fontFamily: 'inherit', minWidth: 52 }}>
+                <Icon size={20} />
+                <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400 }}>{label}</span>
+              </button>
+            );
+          })}
+          <button onClick={() => setMobile(true)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 10, border: 'none', cursor: 'pointer', background: 'transparent', color: t.textMuted, fontFamily: 'inherit', minWidth: 52 }}>
+            <Menu size={20} />
+            <span style={{ fontSize: 10 }}>More</span>
+          </button>
+        </nav>
       </div>
-    </div>
-  );
-}
-
-// Stat Card Component
-function StatCard({ icon, label, value, change, changeType, color }) {
-  const colors = {
-    blue: 'bg-blue-100 text-blue-600',
-    green: 'bg-green-100 text-green-600',
-    purple: 'bg-purple-100 text-purple-600',
-    orange: 'bg-orange-100 text-orange-600'
-  };
-
-  return (
-    <div className="bg-white rounded-xl p-6 border border-slate-200 hover:shadow-md transition">
-      <div className="flex items-center justify-between mb-4">
-        <div className={`w-12 h-12 rounded-lg ${colors[color]} flex items-center justify-center`}>
-          {icon}
-        </div>
-        {change && (
-          <span className={`text-sm font-semibold ${changeType === 'positive' ? 'text-green-600' : 'text-slate-600'}`}>
-            {change}
-          </span>
-        )}
-      </div>
-      <p className="text-3xl font-bold text-slate-800 mb-1">{value}</p>
-      <p className="text-sm text-slate-600">{label}</p>
-    </div>
-  );
-}
-
-// Quick Action Card Component
-function QuickActionCard({ icon, title, description, onClick, color }) {
-  const colors = {
-    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
-    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
-    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
-    orange: 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      className={`bg-gradient-to-br ${colors[color]} text-white rounded-xl p-6 text-left hover:shadow-lg transition group`}
-    >
-      <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition">
-        {React.cloneElement(icon, { className: "w-6 h-6" })}
-      </div>
-      <h4 className="font-bold text-lg mb-1">{title}</h4>
-      <p className="text-sm text-white/80">{description}</p>
-    </button>
-  );
-}
-
-// Activity Item Component
-function ActivityItem({ icon, title, description, time, color }) {
-  const colors = {
-    blue: 'bg-blue-100 text-blue-600',
-    green: 'bg-green-100 text-green-600',
-    purple: 'bg-purple-100 text-purple-600'
-  };
-
-  return (
-    <div className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg">
-      <div className={`w-10 h-10 rounded-lg ${colors[color]} flex items-center justify-center flex-shrink-0`}>
-        {icon}
-      </div>
-      <div className="flex-1">
-        <p className="font-semibold text-slate-800">{title}</p>
-        <p className="text-sm text-slate-600">{description}</p>
-      </div>
-      <span className="text-xs text-slate-500 whitespace-nowrap">{time}</span>
     </div>
   );
 }

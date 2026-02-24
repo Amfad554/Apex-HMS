@@ -41,7 +41,7 @@ export default function HospitalAuth() {
     });
   };
 
-const handleSubmit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
 
@@ -123,7 +123,8 @@ const handleSubmit = async (e) => {
         if (response.ok) {
           // 1. Save token and user data to localStorage
           localStorage.setItem('token', data.token);
-          localStorage.setItem('user', JSON.stringify(data.hospital));
+          // HospitalAuth.jsx
+          localStorage.setItem('user', JSON.stringify(data.user));
           localStorage.setItem('userRole', 'hospital_admin');
 
           // 2. DISPATCH CUSTOM EVENT
@@ -182,8 +183,8 @@ const handleSubmit = async (e) => {
             onClick={() => setMode('signin')}
             disabled={isLoading}
             className={`flex-1 py-3 px-4 rounded-lg font-semibold text-sm transition ${mode === 'signin'
-                ? 'bg-white text-indigo-600 shadow-md'
-                : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-white text-indigo-600 shadow-md'
+              : 'text-slate-600 hover:text-slate-800'
               } disabled:opacity-50`}
           >
             Sign In
@@ -192,8 +193,8 @@ const handleSubmit = async (e) => {
             onClick={() => setMode('signup')}
             disabled={isLoading}
             className={`flex-1 py-3 px-4 rounded-lg font-semibold text-sm transition ${mode === 'signup'
-                ? 'bg-white text-indigo-600 shadow-md'
-                : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-white text-indigo-600 shadow-md'
+              : 'text-slate-600 hover:text-slate-800'
               } disabled:opacity-50`}
           >
             Register

@@ -19,14 +19,14 @@ import PatientRegister from './pages/PatientRegistration.jsx';
 import SuperAdminLogin from './pages/SuperAdminLogin.jsx';
 import PatientDashboard from './pages/PatientDashboard.jsx';
 import Prescriptions from './pages/Prescriptions.jsx';
-import Records from './pages/Records.jsx';
 import SuperAdminDashboard from './pages/SuperAdminDashboard.jsx';
-import HospitalDashboard from './pages/HospitalDashboard.jsx';
+import HospitalDashboard from './pages/Hospitaldashboard.jsx';
 import PatientManagement from './pages/PatientManagement.jsx';
 import Features from './pages/Features.jsx';
 import Contact from './pages/Contact.jsx';
 import Security from './pages/Security.jsx';
 import Pricing from './pages/Pricing.jsx';
+import StaffLogin from './pages/StaffLogin.jsx';
 
 /**
  * PROTECTED ROUTE COMPONENT
@@ -77,6 +77,7 @@ const router = createBrowserRouter([
           { path: "contact", element: <Contact /> },
           { path: "security", element: <Security /> },
           { path: "pricing", element: <Pricing /> },
+          { path: "stafflogin", element: <StaffLogin /> },
           { path: "unauthorized", element: (
               <div className="flex items-center justify-center min-h-[60vh] text-white">
                 <div className="text-center p-10 bg-red-900/20 rounded-lg border border-red-500 backdrop-blur-sm">
@@ -120,7 +121,6 @@ const router = createBrowserRouter([
                 children: [
                   { index: true, element: <PatientDashboard /> },
                   { path: "prescriptions", element: <Prescriptions /> },
-                  { path: "records", element: <Records /> },
                 ],
               },
             ],
