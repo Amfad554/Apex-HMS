@@ -1,69 +1,113 @@
 const express = require('express');
 const router = express.Router();
-const prisma = require('../config/prisma');
-const { verifyToken, isHospitalStaffOrAdmin } = require('../middleware/authMiddleware');
+const { PrismaClient } = require('@prisma/client');
+const { verifyToken, isHospitalAdmin, belongsToHospital } = require('../middleware/authMiddleware');
 
-// Apply protection to all medical records
-router.use(verifyToken, isHospitalStaffOrAdmin);
+const prisma = new PrismaClient();
 
-// 1. GET all medical records for a specific patient
-router.get('/patient/:patientId', async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/records/:hospitalId
+// ─────────────────────────────────────────────────────────────────────────────
+router.get('/:hospitalId', verifyToken, belongsToHospital, async (req, res) => {
   try {
-    const { patientId } = req.params;
+    const hospitalId = parseInt(req.params.hospitalId);
+    const { patientId, recordType } = req.query;
 
     const records = await prisma.medicalRecord.findMany({
       where: {
-        patientId: patientId,
-        hospitalId: req.user.hospitalId // Security: Prevent cross-hospital data leaks
+        hospitalId,
+        ...(patientId  && { patientId: parseInt(patientId) }),
+        ...(recordType && { recordType }),
+      },
+      include: {
+        patient: { select: { id: true, fullName: true, patientNumber: true } },
+        doctor:  { select: { id: true, fullName: true } },
       },
       orderBy: { createdAt: 'desc' },
-      include: {
-        doctor: {
-          select: { fullName: true } // Assuming your Staff/User model has fullName
-        }
-      }
     });
 
-    res.json({ records });
-  } catch (error) {
-    console.error('Error fetching records:', error);
-    res.status(500).json({ error: 'Failed to fetch medical records' });
+    return res.json({ records });
+  } catch (err) {
+    console.error('[GET /records]', err);
+    return res.status(500).json({ error: 'Failed to fetch records' });
   }
 });
 
-// 2. CREATE a new medical record (Consultation Note)
-router.post('/', async (req, res) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/records — add a medical record
+// ─────────────────────────────────────────────────────────────────────────────
+router.post('/', verifyToken, async (req, res) => {
   try {
-    const { 
-      patientId, 
-      diagnosis, 
-      symptoms, 
-      treatmentPlan, 
-      notes, 
-      vitals // e.g., BP, Heart Rate, Weight
+    const {
+      patientId, doctorId, recordType,
+      title, diagnosis, findings,
+      testResults, vitals, notes,
     } = req.body;
 
-    const newRecord = await prisma.medicalRecord.create({
+    const hospitalId = req.user.hospital_id;
+
+    if (!patientId || !doctorId || !recordType || !title) {
+      return res.status(400).json({ error: 'patientId, doctorId, recordType and title are required' });
+    }
+
+    const validTypes = ['lab_results', 'consultation', 'imaging', 'other'];
+    if (!validTypes.includes(recordType)) {
+      return res.status(400).json({ error: `recordType must be one of: ${validTypes.join(', ')}` });
+    }
+
+    // Verify patient and doctor belong to this hospital
+    const [patient, doctor] = await Promise.all([
+      prisma.patient.findFirst({ where: { id: parseInt(patientId), hospitalId } }),
+      prisma.hospitalStaff.findFirst({ where: { id: parseInt(doctorId), hospitalId } }),
+    ]);
+
+    if (!patient) return res.status(404).json({ error: 'Patient not found in your hospital' });
+    if (!doctor)  return res.status(404).json({ error: 'Doctor not found in your hospital' });
+
+    const record = await prisma.medicalRecord.create({
       data: {
-        patientId,
-        hospitalId: req.user.hospitalId,
-        doctorId: req.user.id, // The logged-in staff member
-        diagnosis,
-        symptoms,
-        treatmentPlan,
-        notes,
-        vitals: vitals || {}, // Store as JSON if using PostgreSQL/MySQL
-        visitDate: new Date()
-      }
+        hospitalId,
+        patientId:  parseInt(patientId),
+        doctorId:   parseInt(doctorId),
+        recordType,
+        title:      title.trim(),
+        diagnosis:  diagnosis  || null,
+        findings:   findings   || null,
+        testResults: testResults || null,
+        vitals:      vitals     || null,
+        notes:       notes      || null,
+        recordDate:  new Date(),
+      },
+      include: {
+        patient: { select: { fullName: true, patientNumber: true } },
+        doctor:  { select: { fullName: true } },
+      },
     });
 
-    res.status(201).json({ 
-      message: 'Medical record added successfully', 
-      record: newRecord 
-    });
-  } catch (error) {
-    console.error('Error creating record:', error);
-    res.status(500).json({ error: 'Failed to create medical record' });
+    return res.status(201).json({ message: 'Medical record added successfully', record });
+  } catch (err) {
+    console.error('[POST /records]', err);
+    return res.status(500).json({ error: 'Failed to add record' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/records/:id
+// ─────────────────────────────────────────────────────────────────────────────
+router.delete('/:id', verifyToken, isHospitalAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const hospitalId = req.user.hospital_id;
+
+    const record = await prisma.medicalRecord.findFirst({ where: { id, hospitalId } });
+    if (!record) return res.status(404).json({ error: 'Record not found' });
+
+    await prisma.medicalRecord.delete({ where: { id } });
+
+    return res.json({ message: 'Record deleted successfully' });
+  } catch (err) {
+    console.error('[DELETE /records]', err);
+    return res.status(500).json({ error: 'Failed to delete record' });
   }
 });
 

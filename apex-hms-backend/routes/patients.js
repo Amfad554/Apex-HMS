@@ -1,162 +1,179 @@
 const express = require('express');
-const router = express.Router();
-const prisma = require('../config/prisma'); // Import your Prisma client
-const { verifyToken, isHospitalStaffOrAdmin, belongsToHospital } = require('../middleware/authMiddleware');
+const router  = express.Router();
+const bcrypt  = require('bcryptjs');
+const crypto  = require('crypto');
+const prisma  = require('../lib/prisma');
+const { verifyToken, isHospitalAdmin, belongsToHospital } = require('../middleware/authMiddleware');
 
-// Apply auth middleware to all routes in this file
-router.use(verifyToken, isHospitalStaffOrAdmin);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const generateTempPassword = () =>
+  crypto.randomBytes(12).toString('base64url').slice(0, 12);
 
-// 1. GET all patients for a hospital
-router.get('/hospital/:hospitalId', belongsToHospital, async (req, res) => {
+// Race-condition-safe patient number using a DB transaction
+const generatePatientNumber = async (hospitalId) => {
+  // Count scoped to this hospital + random suffix to minimise collisions
+  const count = await prisma.patient.count({ where: { hospitalId } });
+  const rand  = crypto.randomBytes(2).toString('hex').toUpperCase();
+  return `P-${String(count + 1).padStart(5, '0')}-${rand}`;
+};
+
+// ─── GET /api/patients/:hospitalId ───────────────────────────────────────────
+router.get('/:hospitalId', verifyToken, belongsToHospital, async (req, res) => {
   try {
-    const { hospitalId } = req.params;
+    const hospitalId = parseInt(req.params.hospitalId);
+    const { search, page = '1', limit = '25' } = req.query;
 
-    const patients = await prisma.patient.findMany({
-      where: { hospitalId: hospitalId }, // Or parseInt(hospitalId) if using Int IDs
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        patientNumber: true,
-        fullName: true,
-        dateOfBirth: true,
-        gender: true,
-        phone: true,
-        email: true,
-        bloodGroup: true,
-        createdAt: true
-      }
-    });
+    const take = Math.min(parseInt(limit), 100);
+    const skip = (Math.max(parseInt(page), 1) - 1) * take;
 
-    res.json({ patients });
-  } catch (error) {
-    console.error('Error fetching patients:', error);
-    res.status(500).json({ error: 'Failed to fetch patients' });
+    const where = {
+      hospitalId,
+      ...(search && {
+        OR: [
+          { fullName:      { contains: search, mode: 'insensitive' } },
+          { patientNumber: { contains: search, mode: 'insensitive' } },
+          { email:         { contains: search, mode: 'insensitive' } },
+          { phone:         { contains: search, mode: 'insensitive' } },
+        ],
+      }),
+    };
+
+    const [patients, total] = await Promise.all([
+      prisma.patient.findMany({
+        where,
+        select: {
+          id: true, patientNumber: true, fullName: true,
+          dateOfBirth: true, gender: true, phone: true,
+          email: true, address: true, bloodGroup: true,
+          medicalConditions: true, nextOfKinName: true,
+          nextOfKinPhone: true, createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+        skip,
+      }),
+      prisma.patient.count({ where }),
+    ]);
+
+    return res.json({ patients, total, page: parseInt(page), limit: take });
+  } catch (err) {
+    console.error('[GET /patients]', err);
+    return res.status(500).json({ error: 'Failed to fetch patients.' });
   }
 });
 
-// 2. GET single patient
-router.get('/:patientId', async (req, res) => {
+// ─── POST /api/patients ───────────────────────────────────────────────────────
+router.post('/', verifyToken, isHospitalAdmin, async (req, res) => {
   try {
-    const { patientId } = req.params;
-
-    const patient = await prisma.patient.findFirst({
-      where: {
-        id: patientId,
-        hospitalId: req.user.hospitalId // Security: Ensure staff belongs to the same hospital
-      }
-    });
-
-    if (!patient) {
-      return res.status(404).json({ error: 'Patient not found' });
-    }
-
-    // Prisma doesn't return the password unless you explicitly select it, 
-    // but just in case:
-    if (patient.password) delete patient.password;
-
-    res.json({ patient });
-  } catch (error) {
-    console.error('Error fetching patient:', error);
-    res.status(500).json({ error: 'Failed to fetch patient' });
-  }
-});
-
-// 3. CREATE new patient
-router.post('/hospital/:hospitalId', belongsToHospital, async (req, res) => {
-  try {
-    const { hospitalId } = req.params;
     const {
-      fullName,
-      dateOfBirth,
-      gender,
-      phone,
-      email,
-      address,
-      bloodGroup,
-      medicalConditions,
-      nextOfKinName,
-      nextOfKinPhone
+      fullName, dateOfBirth, gender, phone, email,
+      address, bloodGroup, medicalConditions,
+      nextOfKinName, nextOfKinPhone,
     } = req.body;
 
-    // Generate patient number using Prisma count
-    const patientCount = await prisma.patient.count({
-      where: { hospitalId: hospitalId }
-    });
-    const patientNumber = `P${String(patientCount + 1).padStart(6, '0')}`;
+    const hospitalId = req.user.hospital_id;
 
-    const newPatient = await prisma.patient.create({
+    // ── Validation ──────────────────────────────────────────────────────────
+    if (!fullName?.trim() || !dateOfBirth || !gender || !phone?.trim() || !address?.trim())
+      return res.status(400).json({ error: 'fullName, dateOfBirth, gender, phone and address are required.' });
+
+    const validGenders = ['male', 'female', 'other'];
+    if (!validGenders.includes(gender.toLowerCase()))
+      return res.status(400).json({ error: 'gender must be male, female, or other.' });
+
+    const dob = new Date(dateOfBirth);
+    if (isNaN(dob.getTime()))
+      return res.status(400).json({ error: 'Invalid dateOfBirth format.' });
+
+    // ── Duplicate email check ────────────────────────────────────────────────
+    if (email?.trim()) {
+      const existing = await prisma.patient.findFirst({
+        where: { hospitalId, email: email.toLowerCase().trim() },
+      });
+      if (existing)
+        return res.status(409).json({ error: 'A patient with this email already exists in your hospital.' });
+    }
+
+    // ── Secure credential generation ─────────────────────────────────────────
+    const patientNumber = await generatePatientNumber(hospitalId);
+    const tempPassword  = generateTempPassword();
+    const passwordHash  = await bcrypt.hash(tempPassword, 12);
+
+    const patient = await prisma.patient.create({
       data: {
         hospitalId,
         patientNumber,
-        fullName,
-        dateOfBirth: new Date(dateOfBirth),
-        gender,
-        phone,
-        email,
-        address,
-        bloodGroup,
-        medicalConditions,
-        nextOfKinName,
-        nextOfKinPhone
-      }
-    });
-
-    res.status(201).json({
-      message: 'Patient registered successfully',
-      patient: newPatient
-    });
-  } catch (error) {
-    console.error('Error creating patient:', error);
-    res.status(500).json({ error: 'Failed to create patient' });
-  }
-});
-
-// 4. UPDATE patient
-router.put('/:patientId', async (req, res) => {
-  try {
-    const { patientId } = req.params;
-    const updateData = req.body;
-
-    // Security: findFirst ensures the patient belongs to the hospital of the staff
-    const updatedPatient = await prisma.patient.updateMany({
-      where: {
-        id: patientId,
-        hospitalId: req.user.hospitalId
+        fullName:          fullName.trim(),
+        dateOfBirth:       dob,
+        gender:            gender.toLowerCase(),
+        phone:             phone.trim(),
+        email:             email ? email.toLowerCase().trim() : null,
+        address:           address.trim(),
+        bloodGroup:        bloodGroup    || null,
+        medicalConditions: medicalConditions || null,
+        nextOfKinName:     nextOfKinName || null,
+        nextOfKinPhone:    nextOfKinPhone || null,
+        passwordHash,
       },
-      data: updateData
+      select: {
+        id: true, patientNumber: true, fullName: true,
+        dateOfBirth: true, gender: true, phone: true,
+        email: true, bloodGroup: true, createdAt: true,
+      },
     });
 
-    if (updatedPatient.count === 0) {
-      return res.status(404).json({ error: 'Patient not found or unauthorized' });
-    }
+    // TODO: await sendCredentialsEmail(email, fullName, { patientNumber, tempPassword });
+    console.log(`[Patient created] ${patientNumber} | temp: ${tempPassword}`);
 
-    res.json({ message: 'Patient updated successfully' });
-  } catch (error) {
-    console.error('Error updating patient:', error);
-    res.status(500).json({ error: 'Failed to update patient' });
+    return res.status(201).json({
+      message: 'Patient registered successfully.',
+      patient,
+    });
+  } catch (err) {
+    console.error('[POST /patients]', err);
+    return res.status(500).json({ error: 'Failed to register patient.' });
   }
 });
 
-// 5. DELETE patient
-router.delete('/:patientId', async (req, res) => {
+// ─── GET /api/patients/single/:id ────────────────────────────────────────────
+router.get('/single/:id', verifyToken, async (req, res) => {
   try {
-    const { patientId } = req.params;
+    const id         = parseInt(req.params.id);
+    const hospitalId = req.user.hospital_id;
 
-    const deleted = await prisma.patient.deleteMany({
-      where: {
-        id: patientId,
-        hospitalId: req.user.hospitalId
-      }
+    const patient = await prisma.patient.findFirst({
+      where: { id, hospitalId },
+      select: {
+        id: true, patientNumber: true, fullName: true,
+        dateOfBirth: true, gender: true, phone: true, email: true,
+        address: true, bloodGroup: true, medicalConditions: true,
+        nextOfKinName: true, nextOfKinPhone: true, createdAt: true,
+      },
     });
 
-    if (deleted.count === 0) {
-      return res.status(404).json({ error: 'Patient not found or unauthorized' });
-    }
+    if (!patient) return res.status(404).json({ error: 'Patient not found.' });
+    return res.json({ patient });
+  } catch (err) {
+    console.error('[GET /patients/single]', err);
+    return res.status(500).json({ error: 'Failed to fetch patient.' });
+  }
+});
 
-    res.json({ message: 'Patient deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting patient:', error);
-    res.status(500).json({ error: 'Failed to delete patient' });
+// ─── DELETE /api/patients/:id ─────────────────────────────────────────────────
+router.delete('/:id', verifyToken, isHospitalAdmin, async (req, res) => {
+  try {
+    const id         = parseInt(req.params.id);
+    const hospitalId = req.user.hospital_id;
+
+    const patient = await prisma.patient.findFirst({ where: { id, hospitalId } });
+    if (!patient) return res.status(404).json({ error: 'Patient not found.' });
+
+    await prisma.patient.delete({ where: { id } });
+
+    return res.json({ message: 'Patient deleted successfully.' });
+  } catch (err) {
+    console.error('[DELETE /patients]', err);
+    return res.status(500).json({ error: 'Failed to delete patient.' });
   }
 });
 

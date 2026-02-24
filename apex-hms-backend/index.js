@@ -14,30 +14,34 @@ const appointmentRoutes = require('./routes/appointments');
 const prescriptionRoutes = require('./routes/prescriptions');
 const medicalRecordRoutes = require('./routes/medicalRecords');
 
+// ── New auth routes (staff/patient login, change-password, /me) ──
+const staffPatientAuthRoutes = require('./routes/staff');
+
 // Initialize Express app
 const app = express();
 
 // Middleware
-app.use(helmet()); // Security headers
+app.use(helmet());
 app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json()); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
-app.use(morgan('dev')); // Request logging
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('dev'));
 
-// Health check endpoint
+// Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'HMS Backend Server is running',
     timestamp: new Date().toISOString()
   });
 });
 
-// API Routes
+// ── API Routes ──────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', staffPatientAuthRoutes); // staff/patient login, /me, change-password
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/patients', patientRoutes);
@@ -48,9 +52,9 @@ app.use('/api/medical-records', medicalRecordRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: 'Route not found',
-    path: req.path 
+    path: req.path
   });
 });
 
@@ -63,13 +67,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
-// Start server
+// ── Start server ────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  // Check if DATABASE_URL exists to determine status
   const dbStatus = process.env.DATABASE_URL ? 'Connected (Neon/Prisma)' : 'Not configured';
-
   console.log(`
   ╔════════════════════════════════════════╗
   ║    🏥 HMS Backend Server Running       ║
@@ -78,6 +79,17 @@ app.listen(PORT, () => {
   ║    Database: ${dbStatus}               ║
   ╚════════════════════════════════════════╝
   `);
+
+  // ── Neon DB keep-alive (prevents cold starts on free tier) ────
+  const prisma = require('./lib/prisma');
+  setInterval(async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log('[keep-alive] DB pinged');
+    } catch (e) {
+      console.error('[keep-alive] ping failed:', e.message);
+    }
+  }, 4 * 60 * 1000); // every 4 minutes
 });
 
 module.exports = app;

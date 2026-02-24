@@ -1,11 +1,13 @@
-import { PrismaClient } from '@prisma/client';
+const { PrismaClient } = require('@prisma/client');
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL not found in environment variables');
-}
+const globalForPrisma = global;
 
-export const prisma = new PrismaClient({
-  log: ['error', 'warn'],
+const prisma = globalForPrisma.prisma ?? new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
 });
 
-console.log('✓ Prisma client initialized');
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}
+
+module.exports = prisma;
