@@ -4,8 +4,8 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminUsername = "admin_apex"; // Your choice
-  const adminPassword = "SuperSecretPassword123"; // Your choice
+  const adminUsername = "admin_apex"; 
+  const adminPassword = "SuperSecretPassword123"; 
   
   const hashedPassword = await bcrypt.hash(adminPassword, 10);
 

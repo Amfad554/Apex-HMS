@@ -48,33 +48,24 @@ export default function StaffLogin() {
         window.dispatchEvent(new Event('themeChange'));
     };
 
-    // ── Real hospital search ───────────────────────────────────────────────────
+    // Hospital search — uses hospitalsAPI.search from services/api.js
     useEffect(() => {
-        // 1. Validation check
-        if (hospitalQuery.trim().length < 2) {
-            setHospitalResults([]);
-            setShowDropdown(false);
-            return;
-        }
-
+        if (hospitalQuery.trim().length < 2) { setHospitalResults([]); setShowDropdown(false); return; }
         const timer = setTimeout(async () => {
             setSearching(true);
             try {
-                // Use the correct API name from your api.js
                 const data = await hospitalsAPI.search(hospitalQuery);
                 setHospitalResults(data.hospitals || []);
                 setShowDropdown(true);
-            } catch (err) {
-                console.error("Search error:", err);
+            } catch {
                 setHospitalResults([]);
             } finally {
-                // This must be inside the async function to work
                 setSearching(false);
             }
-        }, 300); // Debounce timer
-
+        }, 300);
         return () => clearTimeout(timer);
     }, [hospitalQuery]);
+
     const selectHospital = (h) => {
         setSelectedHospital(h);
         setHospitalQuery(h.hospitalName);
@@ -95,6 +86,7 @@ export default function StaffLogin() {
         setIsLoading(true);
         setError('');
         try {
+            // authAPI.staffLogin maps to POST /api/auth/staff/login
             const data = await authAPI.staffLogin({
                 identifier: formData.identifier,
                 password: formData.password,
@@ -117,7 +109,8 @@ export default function StaffLogin() {
         setIsLoading(true);
         setError('');
         try {
-            await authApi.staffForgot(forgotEmail);
+            // TODO: implement forgot password endpoint
+            // await authAPI.forgotPassword(forgotEmail);
             setSuccessMsg('If this email exists, a reset link has been sent. Check your inbox.');
         } catch (err) {
             setError(err.message || 'Something went wrong.');
@@ -219,7 +212,7 @@ export default function StaffLogin() {
                                     )}
                                 </div>
 
-                                {/* Identifier */}
+                                {/* Email / Staff ID */}
                                 <div style={{ marginBottom: 18 }}>
                                     <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: t.textSub, marginBottom: 8 }}>Email or Staff ID</label>
                                     <div style={{ position: 'relative' }}>

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, Search, X, Calendar, CheckCircle2, XCircle, AlertCircle, Loader } from 'lucide-react';
+import { Plus, Search, X, CheckCircle2, XCircle, AlertCircle, Loader } from 'lucide-react';
 import { ACCENT, BLUE, BLUE2 } from '../theme.js';
 import { appointmentsAPI, staffAPI, patientsAPI } from '../../services/api.js';
-import { APPOINTMENT_TYPES } from '../MockData.js';
 
 const STATUS_COLORS = {
   scheduled: { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24' },
@@ -11,6 +10,60 @@ const STATUS_COLORS = {
   no_show: { bg: 'rgba(156,163,175,0.15)', text: '#9ca3af' },
 };
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
+
+// ── Inline Toast ──────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => {
+    const id = setTimeout(onClose, 4000);
+    return () => clearTimeout(id);
+  }, []);
+  const colors = {
+    success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+    error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+    info:    { bg: '#eff6ff', border: '#93c5fd', text: '#1e40af' },
+  };
+  const c = colors[type] || colors.info;
+  return (
+    <div style={{
+      position: 'fixed', top: 20, right: 20, zIndex: 99999,
+      background: c.bg, border: `1px solid ${c.border}`, color: c.text,
+      borderRadius: 12, padding: '14px 18px', minWidth: 280, maxWidth: 420,
+      boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      animation: 'toastIn 0.3s cubic-bezier(0.21,1.02,0.73,1) forwards',
+    }}>
+      <style>{`@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, lineHeight: 1.5 }}>{message}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.text, opacity: 0.6, padding: 0, display: 'flex' }}>
+        <X size={15} />
+      </button>
+    </div>
+  );
+}
+
+// ── Modal wrapper — scrollable, starts near top ───────────────────────────────
+function Modal({ onClose, children, maxWidth = 520 }) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+  return (
+    <div
+      onClick={e => e.target === e.currentTarget && onClose()}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300,
+        overflowY: 'auto', padding: '40px 20px 40px',
+      }}
+    >
+      <div style={{
+        background: 'inherit', borderRadius: 20, width: '100%',
+        maxWidth, margin: '0 auto', position: 'relative',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function Appointments({ isDark, t, hospital }) {
   const [appointments, setAppts] = useState([]);
@@ -23,9 +76,12 @@ export function Appointments({ isDark, t, hospital }) {
   const [showBook, setShowBook] = useState(false);
   const [submitting, setSubmit] = useState(false);
   const [formError, setFormError] = useState('');
+  const [toast, setToast] = useState(null);
   const [form, setForm] = useState({ patientId: '', doctorId: '', appointmentDate: '', appointmentTime: '', reason: '', notes: '' });
 
   const hospitalId = hospital?.id;
+
+  const showToast = (message, type = 'success') => setToast({ message, type });
 
   const load = async () => {
     if (!hospitalId) return;
@@ -57,6 +113,7 @@ export function Appointments({ isDark, t, hospital }) {
       await appointmentsAPI.create(form);
       setShowBook(false);
       setForm({ patientId: '', doctorId: '', appointmentDate: '', appointmentTime: '', reason: '', notes: '' });
+      showToast('Appointment booked successfully!');
       load();
     } catch (err) { setFormError(err.message); }
     finally { setSubmit(false); }
@@ -66,7 +123,8 @@ export function Appointments({ isDark, t, hospital }) {
     try {
       await appointmentsAPI.updateStatus(id, status);
       setAppts(prev => prev.map(a => a.id === id ? { ...a, status } : a));
-    } catch (err) { alert(err.message); }
+      showToast(`Appointment marked as ${status}`);
+    } catch (err) { showToast(err.message, 'error'); }
   };
 
   const filtered = appointments.filter(a =>
@@ -82,6 +140,8 @@ export function Appointments({ isDark, t, hospital }) {
 
   return (
     <div>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Appointments</h1>
@@ -163,11 +223,15 @@ export function Appointments({ isDark, t, hospital }) {
         </div>
       )}
 
+      {/* Book Appointment Modal */}
       {showBook && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflow: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div
+          onClick={e => e.target === e.currentTarget && setShowBook(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}
+        >
+          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 520, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
             <div style={{ padding: '20px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div><h2 style={{ fontWeight: 700, fontSize: 17 }}>Book Appointment</h2></div>
+              <h2 style={{ fontWeight: 700, fontSize: 17 }}>Book Appointment</h2>
               <button onClick={() => setShowBook(false)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, cursor: 'pointer', color: '#ef4444', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
             </div>
             <form onSubmit={handleBook} style={{ padding: '24px' }}>

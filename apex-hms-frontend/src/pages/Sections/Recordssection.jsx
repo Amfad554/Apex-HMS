@@ -4,13 +4,29 @@ import { ACCENT, BLUE, BLUE2 } from '../theme.js';
 import { recordsAPI, staffAPI, patientsAPI } from '../../services/api.js';
 
 const TYPE_COLORS = {
-  lab_results: { bg: 'rgba(6,182,212,0.15)', text: '#22d3ee', label: 'Lab Results' },
-  consultation: { bg: 'rgba(59,130,246,0.15)', text: '#60a5fa', label: 'Consultation' },
-  imaging: { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24', label: 'Imaging' },
-  other: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa', label: 'Other' },
+  lab_results:  { bg: 'rgba(6,182,212,0.15)',   text: '#22d3ee',  label: 'Lab Results' },
+  consultation: { bg: 'rgba(59,130,246,0.15)',   text: '#60a5fa',  label: 'Consultation' },
+  imaging:      { bg: 'rgba(245,158,11,0.15)',   text: '#fbbf24',  label: 'Imaging' },
+  other:        { bg: 'rgba(139,92,246,0.15)',   text: '#a78bfa',  label: 'Other' },
 };
-
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
+
+// ── Inline Toast ──────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => { const id = setTimeout(onClose, 4000); return () => clearTimeout(id); }, []);
+  const colors = {
+    success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+    error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+  };
+  const c = colors[type] || colors.success;
+  return (
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 99999, background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 12, padding: '14px 18px', minWidth: 280, maxWidth: 420, boxShadow: '0 8px 30px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'flex-start', gap: 10, animation: 'toastIn 0.3s cubic-bezier(0.21,1.02,0.73,1) forwards' }}>
+      <style>{`@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, lineHeight: 1.5 }}>{message}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.text, opacity: 0.6, padding: 0, display: 'flex' }}><X size={15} /></button>
+    </div>
+  );
+}
 
 export default function RecordsSection({ isDark, t, hospital }) {
   const [records, setRecords] = useState([]);
@@ -24,12 +40,14 @@ export default function RecordsSection({ isDark, t, hospital }) {
   const [viewRec, setViewRec] = useState(null);
   const [submitting, setSubmit] = useState(false);
   const [formError, setFormError] = useState('');
+  const [toast, setToast] = useState(null);
   const [form, setForm] = useState({
     patientId: '', doctorId: '', recordType: 'lab_results',
     title: '', diagnosis: '', findings: '', notes: '',
   });
 
   const hospitalId = hospital?.id;
+  const showToast = (message, type = 'success') => setToast({ message, type });
 
   const load = async () => {
     if (!hospitalId) return;
@@ -60,6 +78,7 @@ export default function RecordsSection({ isDark, t, hospital }) {
       await recordsAPI.create(form);
       setShowAdd(false);
       setForm({ patientId: '', doctorId: '', recordType: 'lab_results', title: '', diagnosis: '', findings: '', notes: '' });
+      showToast('Medical record saved!');
       load();
     } catch (err) { setFormError(err.message); }
     finally { setSubmit(false); }
@@ -70,7 +89,8 @@ export default function RecordsSection({ isDark, t, hospital }) {
     try {
       await recordsAPI.delete(id);
       setRecords(prev => prev.filter(r => r.id !== id));
-    } catch (err) { alert(err.message); }
+      showToast('Record deleted.');
+    } catch (err) { showToast(err.message, 'error'); }
   };
 
   const filtered = records.filter(r =>
@@ -83,6 +103,8 @@ export default function RecordsSection({ isDark, t, hospital }) {
 
   return (
     <div>
+      {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Medical Records</h1>
@@ -157,8 +179,9 @@ export default function RecordsSection({ isDark, t, hospital }) {
 
       {/* Add Record Modal */}
       {showAdd && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 500, maxHeight: '90vh', overflow: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div onClick={e => e.target === e.currentTarget && setShowAdd(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 500, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
             <div style={{ padding: '20px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <h2 style={{ fontWeight: 700, fontSize: 17 }}>Add Medical Record</h2>
@@ -219,8 +242,9 @@ export default function RecordsSection({ isDark, t, hospital }) {
 
       {/* View Record Modal */}
       {viewRec && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 440, maxHeight: '90vh', overflow: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div onClick={e => e.target === e.currentTarget && setViewRec(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+          <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 440, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
             <div style={{ padding: 20, borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2 style={{ fontWeight: 700, fontSize: 16 }}>{viewRec.title}</h2>
               <button onClick={() => setViewRec(null)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, cursor: 'pointer', color: '#ef4444', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><X size={16} /></button>
@@ -229,12 +253,12 @@ export default function RecordsSection({ isDark, t, hospital }) {
               {(() => { const tc = TYPE_COLORS[viewRec.recordType] || TYPE_COLORS.other; return <span style={{ background: tc.bg, color: tc.text, fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 8, display: 'inline-block', marginBottom: 14 }}>{tc.label}</span>; })()}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
                 {[
-                  { label: 'Patient', value: viewRec.patient?.fullName },
+                  { label: 'Patient',    value: viewRec.patient?.fullName },
                   { label: 'Patient No', value: viewRec.patient?.patientNumber },
-                  { label: 'Doctor', value: viewRec.doctor?.fullName },
-                  { label: 'Date', value: new Date(viewRec.recordDate).toLocaleDateString() },
-                  { label: 'Diagnosis', value: viewRec.diagnosis || '—' },
-                  { label: 'Findings', value: viewRec.findings || '—' },
+                  { label: 'Doctor',     value: viewRec.doctor?.fullName },
+                  { label: 'Date',       value: new Date(viewRec.recordDate).toLocaleDateString() },
+                  { label: 'Diagnosis',  value: viewRec.diagnosis || '—' },
+                  { label: 'Findings',   value: viewRec.findings || '—' },
                 ].map(({ label, value }) => (
                   <div key={label} style={{ background: t.cardAlt, borderRadius: 10, padding: '11px 13px', border: `1px solid ${t.border}` }}>
                     <p style={{ fontSize: 11, color: t.textMuted, marginBottom: 3 }}>{label}</p>

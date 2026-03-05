@@ -1,25 +1,40 @@
 import { useState, useEffect } from 'react';
-import { Save, Building2, Phone, Mail, MapPin, Lock, Eye, EyeOff, CheckCircle2, Loader } from 'lucide-react';
+import { Save, Building2, Phone, Mail, MapPin, Lock, Eye, EyeOff, CheckCircle2, Loader, X } from 'lucide-react';
 import { BLUE, BLUE2, ACCENT } from '../theme.js';
 import { hospitalsAPI, authAPI } from '../../services/api.js';
 
 const HOSPITAL_TYPES = ['general', 'specialty', 'private', 'clinic', 'medical_center'];
 
+// ── Inline Toast ──────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => { const id = setTimeout(onClose, 4000); return () => clearTimeout(id); }, []);
+  const colors = {
+    success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+    error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+  };
+  const c = colors[type] || colors.success;
+  return (
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 99999, background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 12, padding: '14px 18px', minWidth: 280, maxWidth: 420, boxShadow: '0 8px 30px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'flex-start', gap: 10, animation: 'toastIn 0.3s cubic-bezier(0.21,1.02,0.73,1) forwards' }}>
+      <style>{`@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, lineHeight: 1.5 }}>{message}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.text, opacity: 0.6, padding: 0, display: 'flex' }}><X size={15} /></button>
+    </div>
+  );
+}
+
 export default function DashSettings({ isDark, t, hospital }) {
-    const [profile, setProfile] = useState({
-        hospitalName: '', hospitalType: 'general', phone: '', address: '', email: '',
-    });
+    const [profile, setProfile] = useState({ hospitalName: '', hospitalType: 'general', phone: '', address: '', email: '' });
     const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' });
     const [showPass, setShowPass] = useState({ current: false, newPass: false, confirm: false });
-    const [profileSaved, setProfileSaved] = useState(false);
-    const [passSaved, setPassSaved] = useState(false);
-    const [passError, setPassError] = useState('');
-    const [profileError, setProfileError] = useState('');
     const [profileLoading, setProfileLoading] = useState(false);
     const [passLoading, setPassLoading] = useState(false);
     const [pageLoading, setPageLoading] = useState(true);
+    const [toast, setToast] = useState(null);
+    const [passError, setPassError] = useState('');
+    const [profileError, setProfileError] = useState('');
 
-    // Load current hospital profile from /me
+    const showToast = (message, type = 'success') => setToast({ message, type });
+
     useEffect(() => {
         authAPI.me()
             .then(data => {
@@ -42,10 +57,10 @@ export default function DashSettings({ isDark, t, hospital }) {
         setProfileLoading(true);
         try {
             await hospitalsAPI.updateProfile(profile);
-            setProfileSaved(true);
-            setTimeout(() => setProfileSaved(false), 3000);
+            showToast('Profile saved successfully!');
         } catch (err) {
             setProfileError(err.message || 'Failed to save profile.');
+            showToast(err.message || 'Failed to save profile.', 'error');
         } finally {
             setProfileLoading(false);
         }
@@ -60,11 +75,11 @@ export default function DashSettings({ isDark, t, hospital }) {
         setPassLoading(true);
         try {
             await authAPI.changePassword({ currentPassword: passwords.current, newPassword: passwords.newPass });
-            setPassSaved(true);
             setPasswords({ current: '', newPass: '', confirm: '' });
-            setTimeout(() => setPassSaved(false), 3000);
+            showToast('Password updated successfully!');
         } catch (err) {
             setPassError(err.message || 'Failed to update password.');
+            showToast(err.message || 'Failed to update password.', 'error');
         } finally {
             setPassLoading(false);
         }
@@ -83,6 +98,8 @@ export default function DashSettings({ isDark, t, hospital }) {
 
     return (
         <div style={{ maxWidth: 720 }}>
+            {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
             <div style={{ marginBottom: 24 }}>
                 <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Settings</h1>
                 <p style={{ color: t.textSub, fontSize: 14 }}>Manage your hospital profile and account settings</p>
@@ -134,15 +151,10 @@ export default function DashSettings({ isDark, t, hospital }) {
                             </div>
                         </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18 }}>
+                    <div style={{ marginTop: 18 }}>
                         <button type="submit" disabled={profileLoading} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 20px', background: `linear-gradient(135deg, ${BLUE}, ${BLUE2})`, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: profileLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: profileLoading ? 0.7 : 1 }}>
                             <Save size={16} /> {profileLoading ? 'Saving…' : 'Save Changes'}
                         </button>
-                        {profileSaved && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: ACCENT.green, fontSize: 13, fontWeight: 600 }}>
-                                <CheckCircle2 size={16} /> Profile saved!
-                            </div>
-                        )}
                     </div>
                 </form>
             </div>
@@ -185,15 +197,10 @@ export default function DashSettings({ isDark, t, hospital }) {
                             </div>
                         ))}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 18 }}>
+                    <div style={{ marginTop: 18 }}>
                         <button type="submit" disabled={passLoading} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 20px', background: `linear-gradient(135deg, ${ACCENT.red}, #f87171)`, color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, cursor: passLoading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: passLoading ? 0.7 : 1 }}>
                             <Lock size={15} /> {passLoading ? 'Updating…' : 'Update Password'}
                         </button>
-                        {passSaved && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: ACCENT.green, fontSize: 13, fontWeight: 600 }}>
-                                <CheckCircle2 size={16} /> Password updated!
-                            </div>
-                        )}
                     </div>
                 </form>
             </div>

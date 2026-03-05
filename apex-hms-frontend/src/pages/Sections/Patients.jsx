@@ -6,6 +6,23 @@ import { DEPARTMENTS, BLOOD_GROUPS } from '../MockData.js';
 
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4', '#7c3aed', '#059669'];
 
+// ── Inline Toast ──────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+  useEffect(() => { const id = setTimeout(onClose, 4000); return () => clearTimeout(id); }, []);
+  const colors = {
+    success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+    error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+  };
+  const c = colors[type] || colors.success;
+  return (
+    <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 99999, background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 12, padding: '14px 18px', minWidth: 280, maxWidth: 420, boxShadow: '0 8px 30px rgba(0,0,0,0.12)', display: 'flex', alignItems: 'flex-start', gap: 10, animation: 'toastIn 0.3s cubic-bezier(0.21,1.02,0.73,1) forwards' }}>
+      <style>{`@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, lineHeight: 1.5 }}>{message}</span>
+      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.text, opacity: 0.6, padding: 0, display: 'flex' }}><X size={15} /></button>
+    </div>
+  );
+}
+
 export default function Patients({ isDark, t, hospital }) {
     const [patients, setPatients] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -15,7 +32,7 @@ export default function Patients({ isDark, t, hospital }) {
     const [viewPatient, setViewPatient] = useState(null);
     const [submitting, setSubmitting] = useState(false);
     const [formError, setFormError] = useState('');
-    const [successMsg, setSuccessMsg] = useState('');
+    const [toast, setToast] = useState(null);
     const [form, setForm] = useState({
         fullName: '', dateOfBirth: '', gender: 'male', phone: '', email: '',
         address: '', bloodGroup: 'O+', medicalConditions: '',
@@ -23,49 +40,36 @@ export default function Patients({ isDark, t, hospital }) {
     });
 
     const hospitalId = hospital?.id;
+    const showToast = (message, type = 'success') => setToast({ message, type });
 
     const loadPatients = async (q = '') => {
         if (!hospitalId) return;
         try {
-            setLoading(true);
-            setError('');
+            setLoading(true); setError('');
             const params = q ? { search: q } : {};
             const res = await patientsAPI.list(hospitalId, params);
             setPatients(res.patients || []);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
+        } catch (err) { setError(err.message); }
+        finally { setLoading(false); }
     };
 
     useEffect(() => { loadPatients(); }, [hospitalId]);
-
-    // Debounced search
-    useEffect(() => {
-        const t = setTimeout(() => loadPatients(search), 400);
-        return () => clearTimeout(t);
-    }, [search]);
+    useEffect(() => { const t = setTimeout(() => loadPatients(search), 400); return () => clearTimeout(t); }, [search]);
 
     const handleRegister = async (e) => {
         e.preventDefault();
         if (!form.fullName || !form.phone || !form.address || !form.dateOfBirth) {
-            setFormError('Please fill all required fields.');
-            return;
+            setFormError('Please fill all required fields.'); return;
         }
         try {
-            setSubmitting(true);
-            setFormError('');
-            const res = await patientsAPI.create(form);
-            setSuccessMsg(`Patient registered! Temp password: ${res.tempPassword}`);
+            setSubmitting(true); setFormError('');
+            await patientsAPI.create(form);
             setShowReg(false);
             setForm({ fullName: '', dateOfBirth: '', gender: 'male', phone: '', email: '', address: '', bloodGroup: 'O+', medicalConditions: '', nextOfKinName: '', nextOfKinPhone: '' });
+            showToast('Patient registered successfully!');
             loadPatients();
-        } catch (err) {
-            setFormError(err.message);
-        } finally {
-            setSubmitting(false);
-        }
+        } catch (err) { setFormError(err.message); }
+        finally { setSubmitting(false); }
     };
 
     const handleDelete = async (id) => {
@@ -73,9 +77,8 @@ export default function Patients({ isDark, t, hospital }) {
         try {
             await patientsAPI.delete(id);
             setPatients(prev => prev.filter(p => p.id !== id));
-        } catch (err) {
-            alert(err.message);
-        }
+            showToast('Patient deleted.');
+        } catch (err) { showToast(err.message, 'error'); }
     };
 
     const inputStyle = { width: '100%', background: t.input, border: `1px solid ${t.border}`, borderRadius: 10, padding: '10px 14px', color: t.text, fontSize: 13, outline: 'none', fontFamily: 'inherit' };
@@ -83,7 +86,8 @@ export default function Patients({ isDark, t, hospital }) {
 
     return (
         <div>
-            {/* Header */}
+            {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
                 <div>
                     <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Patients</h1>
@@ -94,15 +98,6 @@ export default function Patients({ isDark, t, hospital }) {
                 </button>
             </div>
 
-            {/* Success message */}
-            {successMsg && (
-                <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#34d399', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>✓ {successMsg}</span>
-                    <button onClick={() => setSuccessMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#34d399' }}><X size={14} /></button>
-                </div>
-            )}
-
-            {/* Search */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.card, borderRadius: 10, padding: '8px 14px', border: `1px solid ${t.border}`, marginBottom: 20 }}>
                 <Search size={15} color={t.textMuted} />
                 <input placeholder="Search by name or patient number..." value={search} onChange={e => setSearch(e.target.value)}
@@ -110,7 +105,6 @@ export default function Patients({ isDark, t, hospital }) {
                 {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.textMuted }}><X size={14} /></button>}
             </div>
 
-            {/* Table */}
             <div style={{ background: t.card, borderRadius: 18, border: `1px solid ${t.border}`, boxShadow: t.shadow, overflow: 'hidden' }}>
                 {loading ? (
                     <div style={{ padding: 40, textAlign: 'center', color: t.textMuted, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
@@ -174,8 +168,9 @@ export default function Patients({ isDark, t, hospital }) {
 
             {/* Register Modal */}
             {showRegister && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+                <div onClick={e => e.target === e.currentTarget && setShowReg(false)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 560, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
                         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                                 <h2 style={{ fontWeight: 700, fontSize: 17 }}>Register New Patient</h2>
@@ -186,52 +181,24 @@ export default function Patients({ isDark, t, hospital }) {
                         <form onSubmit={handleRegister} style={{ padding: '24px' }}>
                             {formError && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px', color: '#ef4444', fontSize: 13, marginBottom: 16 }}>{formError}</div>}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                                <div style={{ gridColumn: '1/-1' }}>
-                                    <label style={labelStyle}>Full Name *</label>
-                                    <input required style={inputStyle} value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} placeholder="e.g. Amara Okafor" />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Date of Birth *</label>
-                                    <input type="date" required style={inputStyle} value={form.dateOfBirth} onChange={e => setForm({ ...form, dateOfBirth: e.target.value })} />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Gender *</label>
+                                <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Full Name *</label><input required style={inputStyle} value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} placeholder="e.g. Amara Okafor" /></div>
+                                <div><label style={labelStyle}>Date of Birth *</label><input type="date" required style={inputStyle} value={form.dateOfBirth} onChange={e => setForm({ ...form, dateOfBirth: e.target.value })} /></div>
+                                <div><label style={labelStyle}>Gender *</label>
                                     <select style={inputStyle} value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
-                                        <option value="male">Male</option>
-                                        <option value="female">Female</option>
-                                        <option value="other">Other</option>
+                                        <option value="male">Male</option><option value="female">Female</option><option value="other">Other</option>
                                     </select>
                                 </div>
-                                <div>
-                                    <label style={labelStyle}>Phone *</label>
-                                    <input required style={inputStyle} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="0801-234-5678" />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Email</label>
-                                    <input type="email" style={inputStyle} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="patient@email.com" />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Blood Group</label>
+                                <div><label style={labelStyle}>Phone *</label><input required style={inputStyle} value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="0801-234-5678" /></div>
+                                <div><label style={labelStyle}>Email</label><input type="email" style={inputStyle} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="patient@email.com" /></div>
+                                <div><label style={labelStyle}>Blood Group</label>
                                     <select style={inputStyle} value={form.bloodGroup} onChange={e => setForm({ ...form, bloodGroup: e.target.value })}>
                                         {BLOOD_GROUPS.map(b => <option key={b}>{b}</option>)}
                                     </select>
                                 </div>
-                                <div>
-                                    <label style={labelStyle}>Medical Conditions</label>
-                                    <input style={inputStyle} value={form.medicalConditions} onChange={e => setForm({ ...form, medicalConditions: e.target.value })} placeholder="e.g. Hypertension, Diabetes" />
-                                </div>
-                                <div style={{ gridColumn: '1/-1' }}>
-                                    <label style={labelStyle}>Address *</label>
-                                    <input required style={inputStyle} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Patient's home address" />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Next of Kin Name</label>
-                                    <input style={inputStyle} value={form.nextOfKinName} onChange={e => setForm({ ...form, nextOfKinName: e.target.value })} />
-                                </div>
-                                <div>
-                                    <label style={labelStyle}>Next of Kin Phone</label>
-                                    <input style={inputStyle} value={form.nextOfKinPhone} onChange={e => setForm({ ...form, nextOfKinPhone: e.target.value })} />
-                                </div>
+                                <div><label style={labelStyle}>Medical Conditions</label><input style={inputStyle} value={form.medicalConditions} onChange={e => setForm({ ...form, medicalConditions: e.target.value })} placeholder="e.g. Hypertension, Diabetes" /></div>
+                                <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Address *</label><input required style={inputStyle} value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Patient's home address" /></div>
+                                <div><label style={labelStyle}>Next of Kin Name</label><input style={inputStyle} value={form.nextOfKinName} onChange={e => setForm({ ...form, nextOfKinName: e.target.value })} /></div>
+                                <div><label style={labelStyle}>Next of Kin Phone</label><input style={inputStyle} value={form.nextOfKinPhone} onChange={e => setForm({ ...form, nextOfKinPhone: e.target.value })} /></div>
                             </div>
                             <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
                                 <button type="button" onClick={() => setShowReg(false)} style={{ flex: 1, padding: '11px', background: t.input, border: `1px solid ${t.border}`, borderRadius: 10, color: t.textSub, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', fontSize: 14 }}>Cancel</button>
@@ -246,8 +213,9 @@ export default function Patients({ isDark, t, hospital }) {
 
             {/* View Patient Modal */}
             {viewPatient && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 480, border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+                <div onClick={e => e.target === e.currentTarget && setViewPatient(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 480, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
                         <div style={{ padding: 24, background: ACCENT.blue + '18', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                                 <div style={{ width: 56, height: 56, borderRadius: 16, background: ACCENT.blue + '33', color: ACCENT.blue, fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

@@ -6,17 +6,34 @@ import { staffAPI } from '../../services/api.js';
 import { DEPARTMENTS, STAFF_ROLES } from '../MockData.js';
 
 const ROLE_COLORS = {
-    doctor: { bg: 'rgba(59,130,246,0.15)', text: '#60a5fa' },
-    nurse: { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
-    pharmacist: { bg: 'rgba(236,72,153,0.15)', text: '#f472b6' },
-    lab_staff: { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24' },
-    receptionist: { bg: 'rgba(139,92,246,0.15)', text: '#a78bfa' },
+    doctor:       { bg: 'rgba(59,130,246,0.15)',  text: '#60a5fa' },
+    nurse:        { bg: 'rgba(16,185,129,0.15)',  text: '#34d399' },
+    pharmacist:   { bg: 'rgba(236,72,153,0.15)',  text: '#f472b6' },
+    lab_staff:    { bg: 'rgba(245,158,11,0.15)',  text: '#fbbf24' },
+    receptionist: { bg: 'rgba(139,92,246,0.15)',  text: '#a78bfa' },
 };
 const STATUS_COLORS = {
-    active: { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
-    inactive: { bg: 'rgba(239,68,68,0.15)', text: '#f87171' },
+    active:   { bg: 'rgba(16,185,129,0.15)', text: '#34d399' },
+    inactive: { bg: 'rgba(239,68,68,0.15)',  text: '#f87171' },
 };
 const AVATAR_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ec4899', '#06b6d4'];
+
+// ── Inline Toast ──────────────────────────────────────────────────────────────
+function Toast({ message, type = 'success', onClose }) {
+    useEffect(() => { const id = setTimeout(onClose, 5000); return () => clearTimeout(id); }, []);
+    const colors = {
+        success: { bg: '#f0fdf4', border: '#86efac', text: '#166534' },
+        error:   { bg: '#fef2f2', border: '#fca5a5', text: '#991b1b' },
+    };
+    const c = colors[type] || colors.success;
+    return (
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 99999, background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 12, padding: '14px 18px', minWidth: 300, maxWidth: 440, boxShadow: '0 8px 30px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'flex-start', gap: 10, animation: 'toastIn 0.3s cubic-bezier(0.21,1.02,0.73,1) forwards' }}>
+            <style>{`@keyframes toastIn{from{transform:translateX(110%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+            <span style={{ flex: 1, fontSize: 13, fontWeight: 500, lineHeight: 1.5 }}>{message}</span>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: c.text, opacity: 0.6, padding: 0, display: 'flex' }}><X size={15} /></button>
+        </div>
+    );
+}
 
 export default function Staff({ isDark, t, hospital }) {
     const [staff, setStaff] = useState([]);
@@ -28,10 +45,11 @@ export default function Staff({ isDark, t, hospital }) {
     const [viewStaff, setViewStaff] = useState(null);
     const [submitting, setSubmit] = useState(false);
     const [formError, setFormError] = useState('');
-    const [successMsg, setSuccess] = useState('');
+    const [toast, setToast] = useState(null);
     const [form, setForm] = useState({ fullName: '', email: '', role: 'doctor', department: '', specialty: '', phone: '' });
 
     const hospitalId = hospital?.id;
+    const showToast = (message, type = 'success') => setToast({ message, type });
 
     const loadStaff = async () => {
         if (!hospitalId) return;
@@ -55,7 +73,7 @@ export default function Staff({ isDark, t, hospital }) {
         try {
             setSubmit(true); setFormError('');
             const res = await staffAPI.create(form);
-            setSuccess(`Staff added! Temp password: ${res.tempPassword}`);
+            showToast(`Staff added! Temp password: ${res.tempPassword}`);
             setShowAdd(false);
             setForm({ fullName: '', email: '', role: 'doctor', department: '', specialty: '', phone: '' });
             loadStaff();
@@ -65,8 +83,11 @@ export default function Staff({ isDark, t, hospital }) {
 
     const handleDelete = async (id) => {
         if (!confirm('Remove this staff member?')) return;
-        try { await staffAPI.delete(id); setStaff(prev => prev.filter(s => s.id !== id)); }
-        catch (err) { alert(err.message); }
+        try {
+            await staffAPI.delete(id);
+            setStaff(prev => prev.filter(s => s.id !== id));
+            showToast('Staff member removed.');
+        } catch (err) { showToast(err.message, 'error'); }
     };
 
     const inputStyle = { width: '100%', background: t.input, border: `1px solid ${t.border}`, borderRadius: 10, padding: '10px 14px', color: t.text, fontSize: 13, outline: 'none', fontFamily: 'inherit' };
@@ -74,6 +95,8 @@ export default function Staff({ isDark, t, hospital }) {
 
     return (
         <div>
+            {toast && <Toast {...toast} onClose={() => setToast(null)} />}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
                 <div>
                     <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 4 }}>Staff Management</h1>
@@ -83,13 +106,6 @@ export default function Staff({ isDark, t, hospital }) {
                     <UserPlus size={17} /> Add Staff
                 </button>
             </div>
-
-            {successMsg && (
-                <div style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#34d399', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
-                    <span>✓ {successMsg}</span>
-                    <button onClick={() => setSuccess('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#34d399' }}><X size={14} /></button>
-                </div>
-            )}
 
             <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: t.card, borderRadius: 10, padding: '8px 14px', border: `1px solid ${t.border}`, flex: 1, minWidth: 200 }}>
@@ -151,16 +167,17 @@ export default function Staff({ isDark, t, hospital }) {
 
             {/* Add Staff Modal */}
             {showAdd && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 520, maxHeight: '90vh', overflow: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+                <div onClick={e => e.target === e.currentTarget && setShowAdd(false)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 520, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
                         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div><h2 style={{ fontWeight: 700, fontSize: 17 }}>Add Staff Member</h2><p style={{ fontSize: 12, color: t.textSub, marginTop: 2 }}>Credentials will be sent to their email</p></div>
+                            <div><h2 style={{ fontWeight: 700, fontSize: 17 }}>Add Staff Member</h2><p style={{ fontSize: 12, color: t.textSub, marginTop: 2 }}>Credentials will be returned after registration</p></div>
                             <button onClick={() => setShowAdd(false)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, cursor: 'pointer', color: '#ef4444', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>
                         </div>
                         <form onSubmit={handleAdd} style={{ padding: '24px' }}>
                             {formError && <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 14px', color: '#ef4444', fontSize: 13, marginBottom: 16 }}>{formError}</div>}
                             <div style={{ background: isDark ? 'rgba(59,91,219,0.1)' : 'rgba(59,91,219,0.05)', border: `1px solid rgba(59,91,219,0.2)`, borderRadius: 10, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: t.textSub }}>
-                                🔐 A temporary password will be auto-generated and returned after registration.
+                                🔐 A temporary password will be auto-generated and shown after registration.
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                                 <div style={{ gridColumn: '1/-1' }}><label style={labelStyle}>Full Name *</label><input required style={inputStyle} value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} placeholder="e.g. Dr. Kelechi Amadi" /></div>
@@ -191,8 +208,9 @@ export default function Staff({ isDark, t, hospital }) {
 
             {/* View Staff Modal */}
             {viewStaff && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 420, border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+                <div onClick={e => e.target === e.currentTarget && setViewStaff(null)}
+                    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 300, overflowY: 'auto', padding: '20px' }}>
+                    <div style={{ background: t.card, borderRadius: 20, width: '100%', maxWidth: 420, margin: '0 auto', maxHeight: 'calc(100vh - 40px)', overflowY: 'auto', border: `1px solid ${t.border}`, boxShadow: '0 24px 80px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
                         <div style={{ padding: 24, borderBottom: `1px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <h2 style={{ fontWeight: 700, fontSize: 17 }}>{viewStaff.fullName}</h2>
                             <button onClick={() => setViewStaff(null)} style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, cursor: 'pointer', color: '#ef4444', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={16} /></button>

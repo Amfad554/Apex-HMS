@@ -4,6 +4,8 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 
+const prisma = require('./lib/prisma');
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const hospitalRoutes = require('./routes/hospitals');
@@ -13,9 +15,7 @@ const staffRoutes = require('./routes/staff');
 const appointmentRoutes = require('./routes/appointments');
 const prescriptionRoutes = require('./routes/prescriptions');
 const medicalRecordRoutes = require('./routes/medicalRecords');
-
-// ── New auth routes (staff/patient login, change-password, /me) ──
-const staffPatientAuthRoutes = require('./routes/staff');
+const staffPatientAuthRoutes = require('./routes/staffPatientAuth'); // ← separate file, not staff again
 
 // Initialize Express app
 const app = express();
@@ -41,7 +41,7 @@ app.get('/api/health', (req, res) => {
 
 // ── API Routes ──────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
-app.use('/api/auth', staffPatientAuthRoutes); // staff/patient login, /me, change-password
+app.use('/api/auth', staffPatientAuthRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/patients', patientRoutes);
@@ -69,19 +69,29 @@ app.use((err, req, res, next) => {
 
 // ── Start server ────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  const dbStatus = process.env.DATABASE_URL ? 'Connected (Neon/Prisma)' : 'Not configured';
-  console.log(`
+
+async function startServer() {
+  // Wake the DB BEFORE accepting any requests
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log('[startup] DB connection established');
+  } catch (e) {
+    console.error('[startup] DB connection failed:', e.message);
+    console.error('Check your DATABASE_URL in .env');
+  }
+
+  app.listen(PORT, () => {
+    console.log(`
   ╔════════════════════════════════════════╗
   ║    🏥 HMS Backend Server Running       ║
   ║    Port: ${PORT}                         ║
   ║    Environment: ${process.env.NODE_ENV || 'development'}      ║
-  ║    Database: ${dbStatus}               ║
+  ║    Database: Neon/Prisma               ║
   ╚════════════════════════════════════════╝
-  `);
+    `);
+  });
 
-  // ── Neon DB keep-alive (prevents cold starts on free tier) ────
-  const prisma = require('./lib/prisma');
+  // Keep Neon alive — ping every 4 minutes
   setInterval(async () => {
     try {
       await prisma.$queryRaw`SELECT 1`;
@@ -89,7 +99,9 @@ app.listen(PORT, () => {
     } catch (e) {
       console.error('[keep-alive] ping failed:', e.message);
     }
-  }, 4 * 60 * 1000); // every 4 minutes
-});
+  }, 4 * 60 * 1000);
+}
+
+startServer();
 
 module.exports = app;

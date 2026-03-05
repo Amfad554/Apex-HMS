@@ -1,157 +1,175 @@
 const express = require('express');
-const router  = express.Router();
-const bcrypt  = require('bcryptjs');
-const crypto  = require('crypto');
-const prisma  = require('../lib/prisma');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const { PrismaClient } = require('@prisma/client');
 const { verifyToken, isHospitalAdmin, belongsToHospital } = require('../middleware/authMiddleware');
+const { sendStaffCredentials } = require('../lib/mailer');
 
-// ─── Secure temp password generator ──────────────────────────────────────────
-const generateTempPassword = () =>
-  crypto.randomBytes(12).toString('base64url').slice(0, 12);
+const prisma = new PrismaClient();
 
-// ─── GET /api/staff/:hospitalId ───────────────────────────────────────────────
+const generateTempPassword = () => Math.random().toString(36).slice(-8) + Math.floor(Math.random() * 100);
+
+// ── Retry wrapper for Neon sleep timeouts ─────────────────────────────────────
+async function withRetry(fn, retries = 3, delayMs = 2000) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isConnectionErr =
+        err.message?.includes('connect') ||
+        err.message?.includes('timeout') ||
+        err.message?.includes('Server has closed') ||
+        err.errorCode === 'P1001' ||
+        err.errorCode === 'P1008' ||
+        err.errorCode === 'P1017';
+
+      if (isConnectionErr && attempt < retries) {
+        console.warn(`[staff] DB connection error, retrying (${attempt}/${retries})...`);
+        try { await prisma.$queryRaw`SELECT 1`; } catch (_) {}
+        await new Promise(res => setTimeout(res, delayMs));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
+// GET /api/staff/:hospitalId
 router.get('/:hospitalId', verifyToken, belongsToHospital, async (req, res) => {
   try {
     const hospitalId = parseInt(req.params.hospitalId);
-    const { search, role, page = '1', limit = '25' } = req.query;
+    const { search, role } = req.query;
 
-    const take = Math.min(parseInt(limit), 100);
-    const skip = (Math.max(parseInt(page), 1) - 1) * take;
+    const staff = await withRetry(() => prisma.hospitalStaff.findMany({
+      where: {
+        hospitalId,
+        ...(role && { role }),
+        ...(search && {
+          OR: [
+            { fullName: { contains: search, mode: 'insensitive' } },
+            { email:    { contains: search, mode: 'insensitive' } },
+          ],
+        }),
+      },
+      select: {
+        id: true, fullName: true, email: true, role: true,
+        specialty: true, department: true, phone: true,
+        status: true, createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    }));
 
-    const where = {
-      hospitalId,
-      ...(role && { role }),
-      ...(search && {
-        OR: [
-          { fullName:    { contains: search, mode: 'insensitive' } },
-          { email:       { contains: search, mode: 'insensitive' } },
-          { department:  { contains: search, mode: 'insensitive' } },
-        ],
-      }),
-    };
-
-    const [staff, total] = await Promise.all([
-      prisma.hospitalStaff.findMany({
-        where,
-        select: {
-          id: true, fullName: true, email: true, role: true,
-          specialty: true, department: true, phone: true,
-          status: true, createdAt: true,
-        },
-        orderBy: { createdAt: 'desc' },
-        take,
-        skip,
-      }),
-      prisma.hospitalStaff.count({ where }),
-    ]);
-
-    return res.json({ staff, total, page: parseInt(page), limit: take });
+    return res.json({ staff });
   } catch (err) {
     console.error('[GET /staff]', err);
-    return res.status(500).json({ error: 'Failed to fetch staff.' });
+    return res.status(500).json({ error: 'Failed to fetch staff' });
   }
 });
 
-// ─── POST /api/staff ──────────────────────────────────────────────────────────
+// POST /api/staff — add staff + send email
 router.post('/', verifyToken, isHospitalAdmin, async (req, res) => {
   try {
     const { fullName, email, role, department, specialty, phone } = req.body;
     const hospitalId = req.user.hospital_id;
 
-    // ── Validation ──────────────────────────────────────────────────────────
-    if (!fullName?.trim() || !email?.trim() || !role)
-      return res.status(400).json({ error: 'fullName, email and role are required.' });
+    if (!fullName || !email || !role) {
+      return res.status(400).json({ error: 'fullName, email and role are required' });
+    }
 
     const validRoles = ['doctor', 'nurse', 'pharmacist', 'lab_staff', 'receptionist'];
-    if (!validRoles.includes(role))
+    if (!validRoles.includes(role)) {
       return res.status(400).json({ error: `Role must be one of: ${validRoles.join(', ')}` });
+    }
 
-    const normalizedEmail = email.toLowerCase().trim();
+    const existing = await withRetry(() => prisma.hospitalStaff.findFirst({
+      where: { hospitalId, email: email.toLowerCase().trim() },
+    }));
+    if (existing) return res.status(409).json({ error: 'A staff member with this email already exists' });
 
-    const existing = await prisma.hospitalStaff.findFirst({
-      where: { hospitalId, email: normalizedEmail },
-    });
-    if (existing)
-      return res.status(409).json({ error: 'A staff member with this email already exists in your hospital.' });
+    const hospital = await withRetry(() => prisma.hospital.findUnique({
+      where: { id: hospitalId },
+      select: { hospitalName: true },
+    }));
 
-    // ── Secure credential generation ─────────────────────────────────────────
     const tempPassword = generateTempPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 12);
 
-    const staff = await prisma.hospitalStaff.create({
+    const staff = await withRetry(() => prisma.hospitalStaff.create({
       data: {
         hospitalId,
-        fullName:   fullName.trim(),
-        email:      normalizedEmail,
+        fullName: fullName.trim(),
+        email: email.toLowerCase().trim(),
         role,
-        department: department?.trim() || null,
-        specialty:  specialty?.trim()  || null,
-        phone:      phone?.trim()      || null,
+        department: department || null,
+        specialty: specialty || null,
+        phone: phone || null,
         passwordHash,
-        status:     'active',
+        status: 'active',
       },
       select: {
         id: true, fullName: true, email: true, role: true,
         department: true, specialty: true, phone: true,
         status: true, createdAt: true,
       },
-    });
+    }));
 
-    // TODO: await sendCredentialsEmail(normalizedEmail, fullName, tempPassword);
-    // Log server-side only until email is configured — NEVER send in response body
-    console.log(`[Staff created] ${normalizedEmail} | temp: ${tempPassword}`);
+    sendStaffCredentials({
+      to: email,
+      fullName: fullName.trim(),
+      email: email.toLowerCase().trim(),
+      tempPassword,
+      hospitalName: hospital?.hospitalName || 'Your Hospital',
+      role,
+    }).catch(err => console.error('[Email] Failed to send staff credentials:', err.message));
 
-    return res.status(201).json({
-      message: 'Staff member added successfully. Credentials logged server-side until email is configured.',
-      staff,
-    });
+    return res.status(201).json({ message: 'Staff member added successfully', staff, tempPassword });
   } catch (err) {
     console.error('[POST /staff]', err);
-    return res.status(500).json({ error: 'Failed to add staff member.' });
+    return res.status(500).json({ error: 'Failed to add staff member' });
   }
 });
 
-// ─── PATCH /api/staff/:id/status ─────────────────────────────────────────────
+// PATCH /api/staff/:id/status
 router.patch('/:id/status', verifyToken, isHospitalAdmin, async (req, res) => {
   try {
-    const id         = parseInt(req.params.id);
+    const id = parseInt(req.params.id);
     const hospitalId = req.user.hospital_id;
     const { status } = req.body;
 
-    if (!['active', 'inactive'].includes(status))
-      return res.status(400).json({ error: 'Status must be active or inactive.' });
+    if (!['active', 'inactive'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be active or inactive' });
+    }
 
-    const staff = await prisma.hospitalStaff.findFirst({ where: { id, hospitalId } });
-    if (!staff) return res.status(404).json({ error: 'Staff member not found.' });
+    const staff = await withRetry(() => prisma.hospitalStaff.findFirst({ where: { id, hospitalId } }));
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
 
-    const updated = await prisma.hospitalStaff.update({
+    const updated = await withRetry(() => prisma.hospitalStaff.update({
       where: { id },
-      data:  { status },
+      data: { status },
       select: { id: true, fullName: true, status: true },
-    });
+    }));
 
-    return res.json({ message: `Staff marked as ${status}.`, staff: updated });
+    return res.json({ message: `Staff marked as ${status}`, staff: updated });
   } catch (err) {
     console.error('[PATCH /staff/status]', err);
-    return res.status(500).json({ error: 'Failed to update staff status.' });
+    return res.status(500).json({ error: 'Failed to update staff status' });
   }
 });
 
-// ─── DELETE /api/staff/:id ────────────────────────────────────────────────────
+// DELETE /api/staff/:id
 router.delete('/:id', verifyToken, isHospitalAdmin, async (req, res) => {
   try {
-    const id         = parseInt(req.params.id);
+    const id = parseInt(req.params.id);
     const hospitalId = req.user.hospital_id;
 
-    const staff = await prisma.hospitalStaff.findFirst({ where: { id, hospitalId } });
-    if (!staff) return res.status(404).json({ error: 'Staff member not found.' });
+    const staff = await withRetry(() => prisma.hospitalStaff.findFirst({ where: { id, hospitalId } }));
+    if (!staff) return res.status(404).json({ error: 'Staff member not found' });
 
-    await prisma.hospitalStaff.delete({ where: { id } });
-
-    return res.json({ message: 'Staff member removed successfully.' });
+    await withRetry(() => prisma.hospitalStaff.delete({ where: { id } }));
+    return res.json({ message: 'Staff member removed successfully' });
   } catch (err) {
     console.error('[DELETE /staff]', err);
-    return res.status(500).json({ error: 'Failed to delete staff member.' });
+    return res.status(500).json({ error: 'Failed to delete staff member' });
   }
 });
 
