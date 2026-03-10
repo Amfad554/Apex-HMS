@@ -143,7 +143,7 @@ router.post('/', verifyToken, isHospitalAdmin, async (req, res) => {
       }).catch(err => console.error('[Email] Failed to send patient credentials:', err.message));
     }
 
-    return res.status(201).json({ message: 'Patient registered successfully', patient });
+   return res.status(201).json({ message: 'Patient registered successfully', patient, tempPassword });
   } catch (err) {
     console.error('[POST /patients]', err);
     if (err.code === 'P2002') return res.status(409).json({ error: 'A patient with this email already exists' });

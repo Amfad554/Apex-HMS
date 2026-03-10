@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield, Mail, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { ButtonSpinner } from '../components/LoadingSpinner';
+import { ButtonSpinner } from '../Components/LoadingSpinner';
 
 
 
@@ -37,7 +37,7 @@ export default function SuperAdminLogin() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/admin/login', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)

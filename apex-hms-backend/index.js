@@ -15,15 +15,18 @@ const staffRoutes = require('./routes/staff');
 const appointmentRoutes = require('./routes/appointments');
 const prescriptionRoutes = require('./routes/prescriptions');
 const medicalRecordRoutes = require('./routes/medicalRecords');
-const staffPatientAuthRoutes = require('./routes/staffPatientAuth'); // ← separate file, not staff again
+const staffPatientAuthRoutes = require('./routes/Staffpatientauth'); // ← separate file, not staff again
 
 // Initialize Express app
 const app = express();
-
+//
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [
+    'http://localhost:5173',
+    'https://apex-frontend-sage.vercel.app'
+  ],
   credentials: true
 }));
 app.use(express.json());
@@ -49,6 +52,15 @@ app.use('/api/staff', staffRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/prescriptions', prescriptionRoutes);
 app.use('/api/medical-records', medicalRecordRoutes);
+
+const contactRoutes       = require('./routes/contact');
+const platformStatsRoutes = require('./routes/platformStats');
+const subscriptionRoutes = require('./routes/Subscriptionroutes');
+app.use('/api/subscriptions', subscriptionRoutes);
+
+
+app.use('/api/contact',  contactRoutes);
+app.use('/api/platform', platformStatsRoutes);
 
 // 404 handler
 app.use((req, res) => {
